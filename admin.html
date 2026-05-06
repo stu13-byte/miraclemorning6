@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>관리자 패널 – 미라클모닝</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="page-wrap">
+    <header class="header">
+      <div class="header-inner">
+        <a href="admin.html" class="logo-link">
+          <span class="logo-emoji">🌅</span>
+          <span class="logo-text">미라클모닝 <span style="font-size:12px;color:var(--mint-primary);background:var(--mint-pale);padding:2px 8px;border-radius:8px;margin-left:4px;">관리자</span></span>
+        </a>
+        <button class="btn-logout" id="logoutBtn">로그아웃</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="container-wide">
+        <div class="page-header">
+          <h1 class="page-title">관리자 패널 🛠️</h1>
+        </div>
+
+        <!-- Top controls -->
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:24px;">
+          <div class="toggle-wrap">
+            <span class="toggle-label">🔓 기록 시간 제한 해제</span>
+            <label class="toggle">
+              <input type="checkbox" id="bypassToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="exportAllBtn">📋 전체 CSV 복사</button>
+          <button class="btn btn-ghost btn-sm" id="refreshBtn">🔄 새로고침</button>
+        </div>
+
+        <!-- Summary stats -->
+        <div class="stat-grid" style="margin-bottom:24px;" id="summaryStats">
+          <div class="stat-card">
+            <div class="stat-value" id="st-students">–</div>
+            <div class="stat-label">총 학생 수</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="st-today">–</div>
+            <div class="stat-label">오늘 참여 인원</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="st-records">–</div>
+            <div class="stat-label">전체 기록 수</div>
+          </div>
+        </div>
+
+        <!-- Weekly chart -->
+        <div class="chart-container" style="margin-bottom:24px;">
+          <h3 class="section-title" style="margin-bottom:12px;">이번 주 일별 참여 현황</h3>
+          <canvas id="weeklyChart" style="max-height:220px;"></canvas>
+        </div>
+
+        <!-- Student list / detail view -->
+        <div id="listView">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <h2 class="section-title" style="margin-bottom:0;">학생 목록</h2>
+            <input class="form-control" type="text" id="searchInput" placeholder="이름 또는 학번 검색…"
+              style="max-width:220px;padding:8px 14px;font-size:13px;">
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th>학번</th>
+                  <th>학년/반/번호</th>
+                  <th>성별</th>
+                  <th>총 참여</th>
+                  <th>누적 거리</th>
+                  <th>마지막 기록일</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="studentTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Student detail view -->
+        <div id="detailView" style="display:none;">
+          <div style="margin-bottom:20px;">
+            <button class="btn btn-ghost btn-sm" id="backBtn">← 목록으로</button>
+          </div>
+          <div class="card" id="detailCard">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+              <div>
+                <h2 id="detailName" style="font-size:22px;font-weight:800;"></h2>
+                <p id="detailInfo" style="font-size:14px;color:var(--text-muted);margin-top:4px;"></p>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="exportStudentBtn">📋 이 학생 CSV</button>
+            </div>
+            <div class="stat-grid" style="margin-bottom:24px;">
+              <div class="stat-card">
+                <div class="stat-value" id="d-total">–</div>
+                <div class="stat-label">총 참여</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="d-dist">–</div>
+                <div class="stat-label">누적 거리 (m)</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value" id="d-best">–</div>
+                <div class="stat-label">최고 바퀴</div>
+              </div>
+            </div>
+            <h3 class="section-title">기록 내역</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>시간(분)</th>
+                    <th>바퀴</th>
+                    <th>거리(m)</th>
+                    <th>삭제</th>
+                  </tr>
+                </thead>
+                <tbody id="detailBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Confirm delete modal -->
+  <div class="modal-overlay hidden" id="deleteModal">
+    <div class="modal">
+      <h2 class="modal-title">기록 삭제</h2>
+      <p style="font-size:15px;color:var(--text-secondary);margin-bottom:24px;">
+        <strong id="deleteRecordInfo"></strong><br>
+        이 기록을 삭제하면 되돌릴 수 없습니다. 삭제하시겠습니까?
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="deleteCancelBtn">취소</button>
+        <button class="btn btn-danger" id="deleteConfirmBtn">삭제</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-emoji">✅</span>
+    <div class="toast-body"><strong id="toastMsg">완료</strong></div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, logout } from './js/auth.js';
+    import { deleteRecord, checkBypassFlag, setBypassFlag, formatDateKorean, calcUserStats } from './js/records.js';
+    import {
+      getStudentsWithStats, todayAttendance, weeklyStats,
+      buildCSV, buildRecordCSV, copyToClipboard
+    } from './js/admin.js';
+    import { createWeeklyChart } from './js/chart-init.js';
+
+    const overlay = document.getElementById('loadingOverlay');
+    let allStudents = [];
+    let weeklyChartInst = null;
+    let currentStudent = null;
+
+    requireAuth('teacher', async (userData) => {
+      try {
+        await initPage();
+      } finally {
+        overlay.classList.add('hidden');
+      }
+    });
+
+    async function initPage() {
+      // Load bypass flag
+      const bypass = await checkBypassFlag();
+      document.getElementById('bypassToggle').checked = bypass;
+
+      await loadData();
+    }
+
+    async function loadData() {
+      overlay.classList.remove('hidden');
+      try {
+        allStudents = await getStudentsWithStats();
+        renderSummary();
+        renderWeeklyChart();
+        renderStudentTable(allStudents);
+      } finally {
+        overlay.classList.add('hidden');
+      }
+    }
+
+    function renderSummary() {
+      const { count } = todayAttendance(allStudents);
+      const totalRecords = allStudents.reduce((s, st) => s + st.total, 0);
+      document.getElementById('st-students').textContent = allStudents.length;
+      document.getElementById('st-today').textContent    = count;
+      document.getElementById('st-records').textContent  = totalRecords;
+    }
+
+    function renderWeeklyChart() {
+      const { dayLabels, dayCounts } = weeklyStats(allStudents);
+      const ctx = document.getElementById('weeklyChart').getContext('2d');
+      if (weeklyChartInst) weeklyChartInst.destroy();
+      weeklyChartInst = createWeeklyChart(ctx, dayLabels, dayCounts);
+    }
+
+    function renderStudentTable(students) {
+      const tbody = document.getElementById('studentTableBody');
+      if (students.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted);">학생이 없습니다.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = students.map(s => `
+        <tr class="student-row" data-uid="${s.uid || s.id}">
+          <td><strong>${s.name}</strong></td>
+          <td>${s.studentId}</td>
+          <td>${s.grade}학년 ${s.class}반 ${s.number}번</td>
+          <td>${s.gender}</td>
+          <td>${s.total}회</td>
+          <td>${s.totalDistance.toLocaleString()}m</td>
+          <td>${s.lastDate ? formatDateKorean(s.lastDate) : '–'}</td>
+          <td><button class="btn btn-ghost btn-sm detail-btn" data-uid="${s.uid || s.id}">상세보기</button></td>
+        </tr>
+      `).join('');
+
+      tbody.querySelectorAll('.detail-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const student = allStudents.find(s => (s.uid || s.id) === btn.dataset.uid);
+          if (student) showDetail(student);
+        });
+      });
+    }
+
+    function showDetail(student) {
+      currentStudent = student;
+      document.getElementById('listView').style.display = 'none';
+      document.getElementById('detailView').style.display = '';
+
+      document.getElementById('detailName').textContent = student.name;
+      document.getElementById('detailInfo').textContent =
+        `${student.grade}학년 ${student.class}반 ${student.number}번 | 학번: ${student.studentId} | ${student.gender}`;
+
+      const stats = calcUserStats(student.records);
+      document.getElementById('d-total').textContent = stats.total;
+      document.getElementById('d-dist').textContent  = stats.totalDistance.toLocaleString();
+      document.getElementById('d-best').textContent  = stats.bestLaps;
+
+      const tbody = document.getElementById('detailBody');
+      if (!student.records.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-muted);">기록이 없습니다.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = student.records.map(r => `
+        <tr>
+          <td>${formatDateKorean(r.date)}</td>
+          <td>${r.minutes}분</td>
+          <td>${r.laps}바퀴</td>
+          <td>${r.distance}m</td>
+          <td>
+            <button class="btn btn-danger btn-sm delete-btn" data-id="${r.id}" data-date="${r.date}" data-laps="${r.laps}">
+              삭제
+            </button>
+          </td>
+        </tr>
+      `).join('');
+
+      setupDeleteButtons();
+    }
+
+    let pendingDeleteId = null;
+
+    function setupDeleteButtons() {
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          pendingDeleteId = btn.dataset.id;
+          document.getElementById('deleteRecordInfo').textContent =
+            `${btn.dataset.date} — ${btn.dataset.laps}바퀴`;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        });
+      });
+    }
+
+    document.getElementById('deleteCancelBtn').addEventListener('click', () => {
+      document.getElementById('deleteModal').classList.add('hidden');
+      pendingDeleteId = null;
+    });
+
+    document.getElementById('deleteConfirmBtn').addEventListener('click', async () => {
+      if (!pendingDeleteId) return;
+      document.getElementById('deleteModal').classList.add('hidden');
+      overlay.classList.remove('hidden');
+      try {
+        await deleteRecord(pendingDeleteId);
+        showToast('기록이 삭제되었습니다.');
+        await loadData();
+        if (currentStudent) {
+          const updated = allStudents.find(s => (s.uid || s.id) === (currentStudent.uid || currentStudent.id));
+          if (updated) showDetail(updated);
+        }
+      } catch (err) {
+        showToast('삭제 실패: ' + err.message);
+      } finally {
+        overlay.classList.add('hidden');
+        pendingDeleteId = null;
+      }
+    });
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+      currentStudent = null;
+      document.getElementById('detailView').style.display = 'none';
+      document.getElementById('listView').style.display = '';
+    });
+
+    document.getElementById('bypassToggle').addEventListener('change', async (e) => {
+      try {
+        await setBypassFlag(e.target.checked);
+        showToast(e.target.checked ? '기록 시간 제한이 해제되었습니다.' : '기록 시간 제한이 활성화되었습니다.');
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        showToast('설정 변경 실패: ' + err.message);
+      }
+    });
+
+    document.getElementById('exportAllBtn').addEventListener('click', async () => {
+      try {
+        const csv = buildCSV(allStudents);
+        await copyToClipboard(csv);
+        showToast('CSV가 클립보드에 복사되었습니다.');
+      } catch (err) {
+        showToast('복사 실패: ' + err.message);
+      }
+    });
+
+    document.getElementById('exportStudentBtn').addEventListener('click', async () => {
+      if (!currentStudent) return;
+      try {
+        const csv = buildRecordCSV(currentStudent, currentStudent.records);
+        await copyToClipboard(csv);
+        showToast('학생 기록이 클립보드에 복사되었습니다.');
+      } catch (err) {
+        showToast('복사 실패: ' + err.message);
+      }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      const query = e.target.value.trim().toLowerCase();
+      const filtered = query
+        ? allStudents.filter(s =>
+            s.name.toLowerCase().includes(query) ||
+            String(s.studentId).includes(query)
+          )
+        : allStudents;
+      renderStudentTable(filtered);
+    });
+
+    function showToast(msg) {
+      document.getElementById('toastMsg').textContent = msg;
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await logout();
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>

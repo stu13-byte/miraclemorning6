@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로그인 – 미라클모닝</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="page-wrap">
+    <div class="auth-page">
+      <div class="auth-card card">
+        <div class="auth-logo">
+          <span class="auth-logo-emoji">🌅</span>
+          <span class="auth-logo-name">미라클모닝</span>
+        </div>
+
+        <h1 class="auth-title">로그인</h1>
+        <p class="auth-subtitle">학번과 비밀번호를 입력하세요</p>
+
+        <div id="errorMsg" class="alert alert-error hidden"></div>
+
+        <form id="loginForm" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="studentId">학번</label>
+            <input class="form-control" type="text" id="studentId"
+              placeholder="예) 60705" maxlength="6" inputmode="numeric" autocomplete="username" required>
+            <p class="form-hint">학년+반+번호 조합 (예: 6학년 7반 5번 → 60705)</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">비밀번호</label>
+            <input class="form-control" type="password" id="password"
+              placeholder="비밀번호 입력" autocomplete="current-password" required>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full" id="submitBtn" style="margin-top:8px;">
+            로그인
+          </button>
+        </form>
+
+        <div class="auth-footer">
+          아직 계정이 없나요? <a href="register.html">회원가입</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <script type="module">
+    import { login, getKoreanError, onAuthChange, getUserData } from './js/auth.js';
+
+    const form       = document.getElementById('loginForm');
+    const errorMsg   = document.getElementById('errorMsg');
+    const submitBtn  = document.getElementById('submitBtn');
+    const overlay    = document.getElementById('loadingOverlay');
+
+    // If already logged in, redirect
+    onAuthChange(async (user) => {
+      if (!user) return;
+      try {
+        const userData = await getUserData(user.uid);
+        if (userData) {
+          window.location.href = userData.role === 'teacher' ? 'admin.html' : 'dashboard.html';
+        }
+      } catch { /* ignore */ }
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.classList.remove('hidden');
+    }
+    function hideError() {
+      errorMsg.classList.add('hidden');
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideError();
+
+      const studentId = document.getElementById('studentId').value.trim();
+      const password  = document.getElementById('password').value;
+
+      if (!studentId || !password) {
+        showError('학번과 비밀번호를 모두 입력해 주세요.');
+        return;
+      }
+
+      overlay.classList.remove('hidden');
+      submitBtn.disabled = true;
+
+      try {
+        const user = await login(studentId, password);
+        const userData = await getUserData(user.uid);
+        window.location.href = userData?.role === 'teacher' ? 'admin.html' : 'dashboard.html';
+      } catch (err) {
+        showError(getKoreanError(err));
+        overlay.classList.add('hidden');
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
