@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>대시보드 – 미라클모닝</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="page-wrap">
+    <header class="header">
+      <div class="header-inner">
+        <a href="dashboard.html" class="logo-link">
+          <span class="logo-emoji">🌅</span>
+          <span class="logo-text">미라클모닝</span>
+        </a>
+        <button class="btn-logout" id="logoutBtn">로그아웃</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="container">
+        <div class="dashboard-hero">
+          <h1 class="greeting" id="greeting">안녕하세요!</h1>
+          <p class="miracle-count" id="miracleCount"></p>
+
+          <!-- Recent badge notification -->
+          <div id="recentBadge" class="recent-badge hidden">
+            <span id="recentBadgeEmoji" style="font-size:28px;"></span>
+            <div>
+              <strong style="font-size:14px;display:block;" id="recentBadgeName"></strong>
+              <span style="font-size:12px;color:var(--text-muted);">새 뱃지를 획득했어요! 🎉</span>
+            </div>
+          </div>
+
+          <!-- Today status -->
+          <div id="todayStatus" class="today-status pending hidden">
+            <span id="todayStatusIcon"></span>
+            <span id="todayStatusText"></span>
+          </div>
+
+          <!-- Action cards -->
+          <div class="dashboard-actions">
+            <a href="record.html" class="action-card" id="recordCard">
+              <span class="action-card-icon">🏃</span>
+              <span class="action-card-label" id="recordLabel">기록하기</span>
+            </a>
+            <a href="records.html" class="action-card">
+              <span class="action-card-icon">📊</span>
+              <span class="action-card-label">기록보기</span>
+            </a>
+          </div>
+
+          <!-- Next session info -->
+          <div class="session-info" id="sessionInfo">
+            <span class="session-info-icon">📅</span>
+            <span id="sessionText">다음 미라클모닝 날짜를 불러오는 중...</span>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-grid" id="statGrid" style="display:none;">
+          <div class="stat-card">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">총 참여 횟수</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statDistance">0</div>
+            <div class="stat-label">누적 거리 (km)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statBest">0</div>
+            <div class="stat-label">개인 최고 거리 (km)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statBadges">0</div>
+            <div class="stat-label">획득 뱃지</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, logout } from './js/auth.js';
+    import {
+      getUserRecords, getTodayRecord, getNextSessionDate,
+      formatDateKorean, isRecordingAllowed, calcUserStats, getTodayKST, normRecord
+    } from './js/records.js';
+    import { BADGE_DEFS } from './js/badges.js';
+
+    const overlay = document.getElementById('loadingOverlay');
+
+    requireAuth('student', async (userData) => {
+      try {
+        await initDashboard(userData);
+      } finally {
+        overlay.classList.add('hidden');
+      }
+    });
+
+    async function initDashboard(userData) {
+      document.getElementById('greeting').textContent = `안녕하세요, ${userData.name}님! 👋`;
+
+      const [records, todayRecord, inWindow] = await Promise.all([
+        getUserRecords(userData.uid),
+        getTodayRecord(userData.uid),
+        isRecordingAllowed()
+      ]);
+
+      const stats = calcUserStats(records);
+
+      const countEl = document.getElementById('miracleCount');
+      if (stats.total === 0) {
+        countEl.innerHTML = '아직 기록이 없어요. 첫 미라클모닝을 시작해 보세요! 🌱';
+      } else {
+        countEl.innerHTML = `오늘이 <strong>${stats.total}</strong>번째 미라클모닝이에요!`;
+      }
+
+      document.getElementById('statGrid').style.display = '';
+      document.getElementById('statTotal').textContent    = stats.total.toLocaleString();
+      document.getElementById('statDistance').textContent = stats.totalDistanceKm.toFixed(2);
+      document.getElementById('statBest').textContent     = stats.bestDistanceKm.toFixed(2);
+      const earnedCount = Object.keys(userData.badges || {}).length;
+      document.getElementById('statBadges').textContent   = earnedCount;
+
+      const todayEl     = document.getElementById('todayStatus');
+      const recordCard  = document.getElementById('recordCard');
+      const recordLabel = document.getElementById('recordLabel');
+      todayEl.classList.remove('hidden');
+
+      if (todayRecord) {
+        const n = normRecord(todayRecord);
+        todayEl.className = 'today-status done';
+        document.getElementById('todayStatusIcon').textContent = '✅';
+        document.getElementById('todayStatusText').textContent =
+          `오늘 ${n.distanceKm.toFixed(2)}km 기록 완료!`;
+
+        if (inWindow) {
+          recordLabel.textContent = '기록 수정하기';
+        } else {
+          recordCard.classList.add('disabled');
+          recordLabel.textContent = '오늘 기록 완료';
+        }
+      } else {
+        todayEl.className = 'today-status pending';
+        document.getElementById('todayStatusIcon').textContent = '⏳';
+        document.getElementById('todayStatusText').textContent = '오늘 아직 기록이 없어요';
+      }
+
+      const today = getTodayKST();
+      const badges = userData.badges || {};
+      const recentBadgeEntry = Object.entries(badges)
+        .filter(([, ts]) => ts && ts.startsWith(today))
+        .pop();
+
+      if (recentBadgeEntry) {
+        const badgeDef = BADGE_DEFS.find(b => b.id === recentBadgeEntry[0]);
+        if (badgeDef) {
+          document.getElementById('recentBadgeEmoji').textContent = badgeDef.emoji;
+          document.getElementById('recentBadgeName').textContent  = badgeDef.name;
+          document.getElementById('recentBadge').classList.remove('hidden');
+        }
+      }
+
+      const nextSession = getNextSessionDate();
+      const sessionText = document.getElementById('sessionText');
+      if (inWindow) {
+        document.getElementById('sessionInfo').style.background = 'rgba(62,180,137,0.12)';
+        document.getElementById('sessionInfo').style.borderColor = 'rgba(62,180,137,0.3)';
+        sessionText.innerHTML = '🟢 <strong>지금 기록 가능!</strong> 오전 7:30~9:00';
+      } else {
+        const dateStr = nextSession.toLocaleDateString('ko-KR', {
+          year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+        });
+        sessionText.textContent = `다음 미라클모닝: ${dateStr} 오전 7:30`;
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await logout();
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>

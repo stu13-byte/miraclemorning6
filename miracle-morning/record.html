@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기록하기 – 미라클모닝</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <div class="page-wrap">
+    <header class="header">
+      <div class="header-inner">
+        <a href="dashboard.html" class="logo-link">
+          <span class="logo-emoji">🌅</span>
+          <span class="logo-text">미라클모닝</span>
+        </a>
+        <button class="btn-logout" id="logoutBtn">로그아웃</button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="container">
+        <div class="page-header">
+          <h1 class="page-title" id="pageTitle">기록하기</h1>
+          <p class="page-subtitle" id="pageSubtitle">오늘의 달리기 기록을 입력하세요</p>
+        </div>
+
+        <!-- Time gate: shown when recording not allowed -->
+        <div class="card" id="timeGate" style="display:none;">
+          <div class="time-gate">
+            <span class="time-gate-emoji">⏰</span>
+            <p class="time-gate-title">
+              기록 가능 시간은 월·수요일 오전 7:30~9:00입니다.
+            </p>
+            <p class="time-gate-next" id="nextSessionMsg"></p>
+          </div>
+        </div>
+
+        <!-- Read-only today record (outside window, record exists) -->
+        <div class="card" id="readOnlyRecord" style="display:none;">
+          <h2 class="section-title">✅ 오늘의 기록</h2>
+          <div class="record-view">
+            <div class="record-row">
+              <span class="record-row-label">날짜</span>
+              <span class="record-row-value" id="roDate"></span>
+            </div>
+            <div class="record-row">
+              <span class="record-row-label">달리기 시간</span>
+              <span class="record-row-value" id="roTime"></span>
+            </div>
+            <div class="record-row">
+              <span class="record-row-label">거리</span>
+              <span class="record-row-value" id="roDistance"></span>
+            </div>
+            <div class="record-row">
+              <span class="record-row-label">평균 페이스</span>
+              <span class="record-row-value" id="roPace"></span>
+            </div>
+          </div>
+          <p class="text-muted mt-4" style="font-size:13px;text-align:center;">
+            기록 수정은 기록 가능 시간(월·수 07:30~09:00)에만 가능해요.
+          </p>
+        </div>
+
+        <!-- Record form: shown when recording is allowed -->
+        <div class="card" id="recordForm" style="display:none;">
+          <div id="formError" class="alert alert-error hidden"></div>
+
+          <form id="form" novalidate>
+            <div class="form-group">
+              <label class="form-label">달리기 시간</label>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input class="form-control" type="number" id="recMinutes"
+                  placeholder="분" min="0" max="99" inputmode="numeric" required
+                  style="flex:1;">
+                <span style="color:var(--text-muted);font-weight:600;">분</span>
+                <input class="form-control" type="number" id="recSeconds"
+                  placeholder="초" min="0" max="59" inputmode="numeric" required
+                  style="flex:1;">
+                <span style="color:var(--text-muted);font-weight:600;">초</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="distanceKm">거리 (km)</label>
+              <input class="form-control" type="number" id="distanceKm"
+                placeholder="예) 6.03" min="0.1" max="30" step="0.01" required>
+            </div>
+
+            <div id="pacePreview" class="alert alert-info hidden" style="text-align:center;">
+              <strong id="paceValue"></strong>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" id="submitBtn" style="margin-top:8px;">
+              기록 저장
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Badge toast notification -->
+  <div class="toast" id="badgeToast">
+    <span class="toast-emoji" id="toastEmoji"></span>
+    <div class="toast-body">
+      <strong id="toastName"></strong>
+      <span id="toastDesc">새 뱃지 획득!</span>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, logout } from './js/auth.js';
+    import {
+      isRecordingAllowed, checkBypassFlag, getTodayRecord, saveRecord,
+      getNextSessionDate, formatDateKorean, getClassData, getUserRecords,
+      normRecord, formatTime, formatPace, getTodayKST
+    } from './js/records.js';
+    import { checkAndAwardBadges, BADGE_DEFS } from './js/badges.js';
+
+    const overlay = document.getElementById('loadingOverlay');
+    let existingRecordId = null;
+
+    requireAuth('student', async (userData) => {
+      try {
+        await initPage(userData);
+      } finally {
+        overlay.classList.add('hidden');
+      }
+    });
+
+    async function initPage(userData) {
+      const [inWindow, bypass, todayRecord] = await Promise.all([
+        isRecordingAllowed(),
+        checkBypassFlag(),
+        getTodayRecord(userData.uid)
+      ]);
+
+      const canRecord = inWindow || bypass;
+
+      if (!canRecord) {
+        if (todayRecord) {
+          const n = normRecord(todayRecord);
+          document.getElementById('readOnlyRecord').style.display = '';
+          document.getElementById('roDate').textContent     = formatDateKorean(todayRecord.date);
+          document.getElementById('roTime').textContent     = formatTime(n.seconds);
+          document.getElementById('roDistance').textContent = `${n.distanceKm.toFixed(2)}km`;
+          document.getElementById('roPace').textContent     = formatPace(n.distanceKm, n.seconds);
+        } else {
+          document.getElementById('timeGate').style.display = '';
+          const next = getNextSessionDate();
+          const nextStr = next.toLocaleDateString('ko-KR', {
+            year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
+          });
+          document.getElementById('nextSessionMsg').textContent =
+            `다음 미라클모닝: ${nextStr} 오전 7:30`;
+        }
+        return;
+      }
+
+      document.getElementById('recordForm').style.display = '';
+
+      if (todayRecord) {
+        const n = normRecord(todayRecord);
+        existingRecordId = todayRecord.id;
+        document.getElementById('pageTitle').textContent    = '오늘 기록 수정하기';
+        document.getElementById('pageSubtitle').textContent = '이미 기록한 내용을 수정할 수 있어요';
+        document.getElementById('submitBtn').textContent    = '기록 수정 저장';
+        document.getElementById('recMinutes').value  = Math.floor(n.seconds / 60);
+        document.getElementById('recSeconds').value  = n.seconds % 60;
+        document.getElementById('distanceKm').value  = n.distanceKm.toFixed(2);
+        updatePacePreview();
+      }
+
+      setupForm(userData);
+    }
+
+    function updatePacePreview() {
+      const mins  = parseInt(document.getElementById('recMinutes').value) || 0;
+      const secs  = parseInt(document.getElementById('recSeconds').value) || 0;
+      const km    = parseFloat(document.getElementById('distanceKm').value) || 0;
+      const total = mins * 60 + secs;
+      const preview = document.getElementById('pacePreview');
+      if (km >= 0.1 && total > 0) {
+        document.getElementById('paceValue').textContent = `평균 페이스 ${formatPace(km, total)}/km`;
+        preview.classList.remove('hidden');
+      } else {
+        preview.classList.add('hidden');
+      }
+    }
+
+    function setupForm(userData) {
+      document.getElementById('recMinutes').addEventListener('input', updatePacePreview);
+      document.getElementById('recSeconds').addEventListener('input', updatePacePreview);
+      document.getElementById('distanceKm').addEventListener('input', updatePacePreview);
+
+      document.getElementById('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errorEl = document.getElementById('formError');
+        errorEl.classList.add('hidden');
+
+        const mins       = parseInt(document.getElementById('recMinutes').value) || 0;
+        const secs       = parseInt(document.getElementById('recSeconds').value) || 0;
+        const distanceKm = parseFloat(document.getElementById('distanceKm').value);
+        const totalSec   = mins * 60 + secs;
+
+        if (totalSec <= 0) {
+          errorEl.textContent = '달리기 시간을 입력해 주세요.';
+          errorEl.classList.remove('hidden');
+          return;
+        }
+        if (!distanceKm || distanceKm < 0.1) {
+          errorEl.textContent = '거리를 0.1km 이상 입력해 주세요.';
+          errorEl.classList.remove('hidden');
+          return;
+        }
+
+        overlay.classList.remove('hidden');
+        document.getElementById('submitBtn').disabled = true;
+
+        try {
+          const recordId = await saveRecord(userData.uid, { distanceKm, seconds: totalSec }, existingRecordId);
+
+          const [allUserRecords, classData] = await Promise.all([
+            getUserRecords(userData.uid),
+            getClassData(userData.grade, userData.class)
+          ]);
+
+          const savedRecord = allUserRecords.find(r => r.id === recordId)
+            || { uid: userData.uid, date: getTodayKST(), distanceKm, seconds: totalSec, distance: Math.round(distanceKm * 1000) };
+
+          const { newlyEarned } = await checkAndAwardBadges(
+            userData.uid,
+            savedRecord,
+            allUserRecords,
+            classData.records,
+            userData.badges || {}
+          );
+
+          if (newlyEarned.length > 0) {
+            showBadgeToast(newlyEarned[0]);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+
+          window.location.href = 'dashboard.html';
+        } catch (err) {
+          console.error(err);
+          errorEl.textContent = '저장 중 오류가 발생했습니다. 다시 시도해 주세요.';
+          errorEl.classList.remove('hidden');
+          overlay.classList.add('hidden');
+          document.getElementById('submitBtn').disabled = false;
+        }
+      });
+    }
+
+    function showBadgeToast(badgeId) {
+      const def = BADGE_DEFS.find(b => b.id === badgeId);
+      if (!def) return;
+      document.getElementById('toastEmoji').textContent = def.emoji;
+      document.getElementById('toastName').textContent  = def.name + ' 뱃지 획득!';
+      document.getElementById('toastDesc').textContent  = def.desc;
+      const toast = document.getElementById('badgeToast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3500);
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await logout();
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>
