@@ -6,7 +6,7 @@ admin.initializeApp();
 /* ─────────────────────────────────────────────
    Feature 6: 관리자 비밀번호 초기화
 ───────────────────────────────────────────── */
-exports.adminResetPassword = onCall(async (request) => {
+exports.adminResetPassword = onCall({ region: 'asia-northeast3', cors: true }, async (request) => {
   const callerUid = request.auth?.uid;
   if (!callerUid) throw new HttpsError('unauthenticated', '로그인 필요');
 
@@ -27,7 +27,7 @@ exports.adminResetPassword = onCall(async (request) => {
 /* ─────────────────────────────────────────────
    Feature 7: 신규 사용자 생성 시 추천인 뱃지 부여
 ───────────────────────────────────────────── */
-exports.onUserCreated = onDocumentCreated('users/{uid}', async (event) => {
+exports.onUserCreated = onDocumentCreated({ document: 'users/{uid}', region: 'asia-northeast3' }, async (event) => {
   const newUser = event.data?.data();
   if (!newUser?.referredBy) return;
 
