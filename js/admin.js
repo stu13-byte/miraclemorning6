@@ -1,4 +1,6 @@
 import { getAllUsers, getAllRecords, calcUserStats, getTodayKST, getWeekStart, normRecord, upsertRecord } from './records.js';
+import { functions } from './firebase-config.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-functions.js';
 
 /** Returns all students enriched with stats, sorted by grade → class → number */
 export async function getStudentsWithStats() {
@@ -148,6 +150,15 @@ export function parseSheetInput(text, students) {
     validCount: rows.filter(r => r.valid).length,
     invalidCount: rows.filter(r => !r.valid).length
   };
+}
+
+/**
+ * Reset a student's password via Cloud Function (teacher only).
+ */
+export async function resetPassword(targetUid, newPassword) {
+  const fn = httpsCallable(functions, 'adminResetPassword');
+  const result = await fn({ targetUid, newPassword });
+  return result.data;
 }
 
 /**

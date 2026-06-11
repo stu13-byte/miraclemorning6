@@ -85,6 +85,14 @@
           </div>
 
           <div class="form-group">
+            <label class="form-label" for="referrer">추천인 학번 (선택)</label>
+            <input class="form-control" type="text" id="referrer"
+              placeholder="예) 60705" maxlength="6" inputmode="numeric"
+              autocomplete="off">
+            <p class="form-hint">추천인 학번을 입력하면 추천인에게 뱃지 혜택이 주어집니다.</p>
+          </div>
+
+          <div class="form-group">
             <label class="form-label" for="password">비밀번호</label>
             <input class="form-control" type="password" id="password"
               placeholder="4자 이상 입력" autocomplete="new-password" minlength="4" required>
@@ -118,6 +126,7 @@
         <p>학번: <strong id="previewStudentId"></strong></p>
         <p>학년/반/번호: <strong id="previewClass"></strong></p>
         <p>성별: <strong id="previewGender"></strong></p>
+        <p id="previewReferrerRow" style="display:none;">추천인 학번: <strong id="previewReferrer"></strong></p>
       </div>
       <div id="modalError" class="alert alert-error hidden"></div>
       <div class="modal-actions">
@@ -131,8 +140,21 @@
     <div class="spinner"></div>
   </div>
 
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-emoji">ℹ️</span>
+    <div class="toast-body"><strong id="toastMsg"></strong></div>
+  </div>
+
   <script type="module">
-    import { register, getKoreanError, onAuthChange, getUserData, buildStudentId } from './js/auth.js';
+    import { register, getKoreanError, onAuthChange, getUserData, buildStudentId, buildEmail } from './js/auth.js';
+
+    function showToast(msg) {
+      document.getElementById('toastMsg').textContent = msg;
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3500);
+    }
 
     // Populate number dropdown
     const numberSel = document.getElementById('number');
@@ -171,6 +193,7 @@
       const classNum = document.getElementById('classNum').value;
       const number   = document.getElementById('number').value;
       const gender   = document.querySelector('input[name="gender"]:checked')?.value || '';
+      const referrerStudentId = document.getElementById('referrer').value.trim();
       const password = document.getElementById('password').value;
       const passwordConfirm = document.getElementById('passwordConfirm').value;
 
@@ -185,13 +208,19 @@
       }
 
       const studentId = buildStudentId(grade, classNum, number);
-      pendingData = { name, grade, classNum, number, gender, password, studentId };
+      pendingData = { name, grade, classNum, number, gender, password, studentId, referrerStudentId };
 
       // Fill modal
       document.getElementById('previewName').textContent      = name;
       document.getElementById('previewStudentId').textContent = studentId;
       document.getElementById('previewClass').textContent     = `${grade}학년 ${classNum}반 ${number}번`;
       document.getElementById('previewGender').textContent    = gender;
+      if (referrerStudentId) {
+        document.getElementById('previewReferrer').textContent = referrerStudentId;
+        document.getElementById('previewReferrerRow').style.display = '';
+      } else {
+        document.getElementById('previewReferrerRow').style.display = 'none';
+      }
       hideError(modalError);
       confirmModal.classList.remove('hidden');
     });
@@ -207,7 +236,11 @@
       document.getElementById('confirmBtn').disabled = true;
 
       try {
-        await register(pendingData);
+        const result = await register(pendingData);
+        if (result?.warning === 'referrer_invalid') {
+          showToast('추천인 정보가 확인되지 않아 저장되지 않았습니다.');
+          await new Promise(r => setTimeout(r, 1500));
+        }
         window.location.href = 'dashboard.html';
       } catch (err) {
         overlay.classList.add('hidden');

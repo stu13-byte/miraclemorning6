@@ -1,20 +1,29 @@
 import { db } from './firebase-config.js';
-import { doc, updateDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import {
+  collection, doc, updateDoc, getDocs, query, where
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 import { getWeekStart, normRecord } from './records.js';
 
-export const BADGE_DEFS = [
-  { id: 'first',     emoji: '🌅', name: '첫 발걸음',   desc: '첫 번째 참여' },
-  { id: 'three',     emoji: '🔥', name: '3일의 불꽃',  desc: '3회 참여' },
-  { id: 'ten',       emoji: '💪', name: '열 번의 땀',  desc: '10회 참여' },
-  { id: 'thirty',    emoji: '🏅', name: '미라클 30',   desc: '30회 참여' },
-  { id: 'km5',       emoji: '📏', name: '5km 돌파',    desc: '누적 거리 5km' },
-  { id: 'km20',      emoji: '🚀', name: '20km 돌파',   desc: '누적 거리 20km' },
-  { id: 'marathon',  emoji: '🎽', name: '마라토너',     desc: '누적 거리 42.195km' },
-  { id: 'km50',      emoji: '⚡', name: '50km 돌파',   desc: '누적 거리 50km' },
-  { id: 'km100',     emoji: '🏆', name: '100km 돌파',  desc: '누적 거리 100km' },
-  { id: 'daily1st',  emoji: '🥇', name: '오늘의 1등',  desc: '해당 날 반에서 가장 긴 거리' },
-  { id: 'weeklyMVP', emoji: '🌟', name: '주간 MVP',    desc: '해당 주에 반에서 총 가장 긴 거리' }
-];
+let _badgeDefsCache = null;
+let _badgeDefsCacheTime = 0;
+const CACHE_TTL = 60_000;
+
+export async function fetchBadgeDefs() {
+  const now = Date.now();
+  if (_badgeDefsCache && (now - _badgeDefsCacheTime) < CACHE_TTL) {
+    return _badgeDefsCache;
+  }
+  const snap = await getDocs(query(collection(db, 'badges'), where('active', '==', true)));
+  const defs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  defs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  _badgeDefsCache = defs;
+  _badgeDefsCacheTime = now;
+  return defs;
+}
+
+export function invalidateBadgeCache() {
+  _badgeDefsCache = null;
+}
 
 export async function checkAndAwardBadges(uid, currentRecord, allUserRecords, classRecords, existingBadges) {
   const badges = { ...existingBadges };
@@ -28,43 +37,59 @@ export async function checkAndAwardBadges(uid, currentRecord, allUserRecords, cl
     }
   }
 
-  const total = allUserRecords.length;
-  const totalDistanceKm = allUserRecords.map(normRecord).reduce((s, r) => s + r.distanceKm, 0);
-
-  if (total >= 1)  award('first');
-  if (total >= 3)  award('three');
-  if (total >= 10) award('ten');
-  if (total >= 30) award('thirty');
-
-  if (totalDistanceKm >= 5)      award('km5');
-  if (totalDistanceKm >= 20)     award('km20');
-  if (totalDistanceKm >= 42.195) award('marathon');
-  if (totalDistanceKm >= 50)     award('km50');
-  if (totalDistanceKm >= 100)    award('km100');
-
-  const today = currentRecord.date;
-  const todayClass = classRecords.filter(r => r.date === today);
-  if (todayClass.length > 0) {
-    const myTodayKm = todayClass
-      .filter(r => r.uid === uid)
-      .reduce((max, r) => Math.max(max, normRecord(r).distanceKm), 0);
-    const classMax = Math.max(...todayClass.map(r => normRecord(r).distanceKm));
-    if (myTodayKm > 0 && myTodayKm >= classMax) award('daily1st');
+  let defs;
+  try {
+    defs = await fetchBadgeDefs();
+  } catch (e) {
+    console.error('fetchBadgeDefs failed:', e);
+    return { badges, newlyEarned };
   }
 
+  const total = allUserRecords.length;
+  const totalDistanceKm = allUserRecords.map(normRecord).reduce((s, r) => s + r.distanceKm, 0);
+  const today = currentRecord.date;
+
+  const todayClass = classRecords.filter(r => r.date === today);
+  const myTodayKm = todayClass
+    .filter(r => r.uid === uid)
+    .reduce((max, r) => Math.max(max, normRecord(r).distanceKm), 0);
+  const classMaxToday = todayClass.length > 0
+    ? Math.max(...todayClass.map(r => normRecord(r).distanceKm))
+    : 0;
+
   const weekStart = getWeekStart(today);
-  const weekClass = classRecords.filter(r => {
-    const d = new Date(`${r.date}T00:00:00`);
-    return d >= weekStart;
+  const weekClass = classRecords.filter(r => new Date(`${r.date}T00:00:00`) >= weekStart);
+  const weekTotals = {};
+  weekClass.forEach(r => {
+    weekTotals[r.uid] = (weekTotals[r.uid] || 0) + normRecord(r).distanceKm;
   });
-  if (weekClass.length > 0) {
-    const weekTotals = {};
-    weekClass.forEach(r => {
-      weekTotals[r.uid] = (weekTotals[r.uid] || 0) + normRecord(r).distanceKm;
-    });
-    const myWeekKm = weekTotals[uid] || 0;
-    const weekMax = Math.max(...Object.values(weekTotals));
-    if (myWeekKm > 0 && myWeekKm >= weekMax) award('weeklyMVP');
+  const myWeekKm = weekTotals[uid] || 0;
+  const weekMax = weekClass.length > 0 ? Math.max(...Object.values(weekTotals)) : 0;
+
+  for (const b of defs) {
+    const c = b.condition;
+    if (!c) continue;
+    switch (c.type) {
+      case 'count':
+        if (total >= c.threshold) award(b.id);
+        break;
+      case 'totalDistance':
+        if (totalDistanceKm >= c.threshold) award(b.id);
+        break;
+      case 'singleDistance': {
+        const best = allUserRecords.map(normRecord).reduce((m, r) => Math.max(m, r.distanceKm), 0);
+        if (best >= c.threshold) award(b.id);
+        break;
+      }
+      case 'dailyTop':
+        if (myTodayKm > 0 && myTodayKm >= classMaxToday) award(b.id);
+        break;
+      case 'weeklyMVP':
+        if (myWeekKm > 0 && myWeekKm >= weekMax) award(b.id);
+        break;
+      case 'referralCount':
+        break;
+    }
   }
 
   if (newlyEarned.length > 0) {
@@ -78,8 +103,14 @@ export async function checkAndAwardBadges(uid, currentRecord, allUserRecords, cl
   return { badges, newlyEarned };
 }
 
-export function getBadgeDef(id) {
-  return BADGE_DEFS.find(b => b.id === id);
+export async function getBadgeDef(id) {
+  const defs = await fetchBadgeDefs();
+  return defs.find(b => b.id === id) || { id, name: '삭제된 뱃지', desc: '', imageRef: '' };
+}
+
+export function getImageSrc(imageRef) {
+  if (!imageRef) return 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'56\' height=\'56\'%3E%3Crect width=\'56\' height=\'56\' rx=\'12\' fill=\'%23e0e0e0\'/%3E%3C/svg%3E';
+  return imageRef;
 }
 
 export function formatBadgeDate(isoStr) {

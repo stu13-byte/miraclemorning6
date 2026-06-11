@@ -226,7 +226,7 @@ tr:hover td { background: rgba(168,230,207,0.08); }
 .badge-card { background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: 18px; padding: 20px 14px; text-align: center; transition: var(--transition); }
 .badge-card.earned { background: linear-gradient(135deg, rgba(168,230,207,0.4), rgba(255,255,255,0.85)); border-color: var(--mint-light); box-shadow: 0 4px 16px rgba(62,180,137,0.15); }
 .badge-card.unearned { opacity: 0.5; filter: grayscale(0.7); }
-.badge-emoji { font-size: 34px; margin-bottom: 8px; display: block; }
+.badge-img { width: 56px; height: 56px; object-fit: contain; margin-bottom: 8px; display: block; margin-left: auto; margin-right: auto; border-radius: 8px; }
 .badge-name { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
 .badge-desc { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
 .badge-earned-date { font-size: 10px; color: var(--mint-primary); margin-top: 6px; font-weight: 600; }

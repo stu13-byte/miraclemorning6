@@ -20,7 +20,10 @@
           <span class="logo-emoji">🌅</span>
           <span class="logo-text">미라클모닝</span>
         </a>
-        <button class="btn-logout" id="logoutBtn">로그아웃</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-ghost btn-sm" id="changePwBtn">🔒 비밀번호 변경</button>
+          <button class="btn-logout" id="logoutBtn">로그아웃</button>
+        </div>
       </div>
     </header>
 
@@ -32,7 +35,7 @@
 
           <!-- Recent badge notification -->
           <div id="recentBadge" class="recent-badge hidden">
-            <span id="recentBadgeEmoji" style="font-size:28px;"></span>
+            <img class="badge-img" id="recentBadgeImg" src="" alt="" style="width:40px;height:40px;flex-shrink:0;">
             <div>
               <strong style="font-size:14px;display:block;" id="recentBadgeName"></strong>
               <span style="font-size:12px;color:var(--text-muted);">새 뱃지를 획득했어요! 🎉</span>
@@ -87,17 +90,47 @@
     </main>
   </div>
 
+  <!-- 비밀번호 변경 모달 -->
+  <div class="modal-overlay hidden" id="changePwModal">
+    <div class="modal">
+      <h2 class="modal-title">🔒 비밀번호 변경</h2>
+      <div class="form-group">
+        <label class="form-label">현재 비밀번호</label>
+        <input class="form-control" type="password" id="cp-current" placeholder="현재 비밀번호">
+      </div>
+      <div class="form-group">
+        <label class="form-label">새 비밀번호 (4자 이상)</label>
+        <input class="form-control" type="password" id="cp-new" placeholder="새 비밀번호" minlength="4">
+      </div>
+      <div class="form-group">
+        <label class="form-label">새 비밀번호 확인</label>
+        <input class="form-control" type="password" id="cp-confirm" placeholder="새 비밀번호 재입력">
+      </div>
+      <div id="cp-error" class="alert alert-error hidden"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cp-cancelBtn">취소</button>
+        <button class="btn btn-primary" id="cp-confirmBtn">변경</button>
+      </div>
+    </div>
+  </div>
+
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
   </div>
 
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <span class="toast-emoji">✅</span>
+    <div class="toast-body"><strong id="toastMsg"></strong></div>
+  </div>
+
   <script type="module">
-    import { requireAuth, logout } from './js/auth.js';
+    import { requireAuth, logout, changePassword, getKoreanError } from './js/auth.js';
     import {
       getUserRecords, getTodayRecord, getNextSessionDate,
       formatDateKorean, isRecordingAllowed, calcUserStats, getTodayKST, normRecord
     } from './js/records.js';
-    import { BADGE_DEFS } from './js/badges.js';
+    import { fetchBadgeDefs, getImageSrc } from './js/badges.js';
 
     const overlay = document.getElementById('loadingOverlay');
 
@@ -112,10 +145,11 @@
     async function initDashboard(userData) {
       document.getElementById('greeting').textContent = `안녕하세요, ${userData.name}님! 👋`;
 
-      const [records, todayRecord, inWindow] = await Promise.all([
+      const [records, todayRecord, inWindow, badgeDefs] = await Promise.all([
         getUserRecords(userData.uid),
         getTodayRecord(userData.uid),
-        isRecordingAllowed()
+        isRecordingAllowed(),
+        fetchBadgeDefs().catch(() => [])
       ]);
 
       const stats = calcUserStats(records);
@@ -165,12 +199,11 @@
         .pop();
 
       if (recentBadgeEntry) {
-        const badgeDef = BADGE_DEFS.find(b => b.id === recentBadgeEntry[0]);
-        if (badgeDef) {
-          document.getElementById('recentBadgeEmoji').textContent = badgeDef.emoji;
-          document.getElementById('recentBadgeName').textContent  = badgeDef.name;
-          document.getElementById('recentBadge').classList.remove('hidden');
-        }
+        const badgeDef = badgeDefs.find(b => b.id === recentBadgeEntry[0]) || { name: '새 뱃지', imageRef: '' };
+        document.getElementById('recentBadgeImg').src = getImageSrc(badgeDef.imageRef);
+        document.getElementById('recentBadgeImg').alt = badgeDef.name;
+        document.getElementById('recentBadgeName').textContent  = badgeDef.name;
+        document.getElementById('recentBadge').classList.remove('hidden');
       }
 
       const nextSession = getNextSessionDate();
@@ -190,6 +223,57 @@
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await logout();
       window.location.href = 'index.html';
+    });
+
+    function showToast(msg) {
+      document.getElementById('toastMsg').textContent = msg;
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    document.getElementById('changePwBtn').addEventListener('click', () => {
+      document.getElementById('cp-current').value = '';
+      document.getElementById('cp-new').value = '';
+      document.getElementById('cp-confirm').value = '';
+      document.getElementById('cp-error').classList.add('hidden');
+      document.getElementById('changePwModal').classList.remove('hidden');
+      document.getElementById('cp-current').focus();
+    });
+
+    document.getElementById('cp-cancelBtn').addEventListener('click', () => {
+      document.getElementById('changePwModal').classList.add('hidden');
+    });
+
+    document.getElementById('cp-confirmBtn').addEventListener('click', async () => {
+      const cur = document.getElementById('cp-current').value;
+      const nw  = document.getElementById('cp-new').value;
+      const conf= document.getElementById('cp-confirm').value;
+      const errEl = document.getElementById('cp-error');
+      errEl.classList.add('hidden');
+
+      if (!cur || !nw || !conf) { errEl.textContent = '모든 항목을 입력해 주세요.'; errEl.classList.remove('hidden'); return; }
+      if (nw.length < 4)        { errEl.textContent = '새 비밀번호는 4자 이상이어야 합니다.'; errEl.classList.remove('hidden'); return; }
+      if (nw !== conf)          { errEl.textContent = '새 비밀번호가 일치하지 않습니다.'; errEl.classList.remove('hidden'); return; }
+
+      document.getElementById('cp-confirmBtn').disabled = true;
+      try {
+        await changePassword(cur, nw);
+        document.getElementById('changePwModal').classList.add('hidden');
+        showToast('비밀번호가 변경되었습니다.');
+      } catch (e) {
+        const msg = getKoreanError(e);
+        if (msg === 'requires-recent-login') {
+          document.getElementById('changePwModal').classList.add('hidden');
+          await logout();
+          window.location.href = 'login.html';
+        } else {
+          errEl.textContent = msg;
+          errEl.classList.remove('hidden');
+        }
+      } finally {
+        document.getElementById('cp-confirmBtn').disabled = false;
+      }
     });
   </script>
 </body>
