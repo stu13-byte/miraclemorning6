@@ -72,11 +72,11 @@
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statDistance">0</div>
-            <div class="stat-label">누적 거리 (m)</div>
+            <div class="stat-label">누적 거리 (km)</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statBest">0</div>
-            <div class="stat-label">개인 최고 바퀴</div>
+            <div class="stat-label">개인 최고 거리 (km)</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statBadges">0</div>
@@ -95,7 +95,7 @@
     import { requireAuth, logout } from './js/auth.js';
     import {
       getUserRecords, getTodayRecord, getNextSessionDate,
-      formatDateKorean, isRecordingAllowed, calcUserStats, getTodayKST
+      formatDateKorean, isRecordingAllowed, calcUserStats, getTodayKST, normRecord
     } from './js/records.js';
     import { BADGE_DEFS } from './js/badges.js';
 
@@ -112,14 +112,14 @@
     async function initDashboard(userData) {
       document.getElementById('greeting').textContent = `안녕하세요, ${userData.name}님! 👋`;
 
-      const [records, todayRecord] = await Promise.all([
+      const [records, todayRecord, inWindow] = await Promise.all([
         getUserRecords(userData.uid),
-        getTodayRecord(userData.uid)
+        getTodayRecord(userData.uid),
+        isRecordingAllowed()
       ]);
 
       const stats = calcUserStats(records);
 
-      // Miracle count
       const countEl = document.getElementById('miracleCount');
       if (stats.total === 0) {
         countEl.innerHTML = '아직 기록이 없어요. 첫 미라클모닝을 시작해 보세요! 🌱';
@@ -127,28 +127,26 @@
         countEl.innerHTML = `오늘이 <strong>${stats.total}</strong>번째 미라클모닝이에요!`;
       }
 
-      // Stats section
       document.getElementById('statGrid').style.display = '';
       document.getElementById('statTotal').textContent    = stats.total.toLocaleString();
-      document.getElementById('statDistance').textContent = stats.totalDistance.toLocaleString();
-      document.getElementById('statBest').textContent     = stats.bestLaps;
+      document.getElementById('statDistance').textContent = stats.totalDistanceKm.toFixed(2);
+      document.getElementById('statBest').textContent     = stats.bestDistanceKm.toFixed(2);
       const earnedCount = Object.keys(userData.badges || {}).length;
       document.getElementById('statBadges').textContent   = earnedCount;
 
-      // Today status
-      const todayEl    = document.getElementById('todayStatus');
-      const recordCard = document.getElementById('recordCard');
+      const todayEl     = document.getElementById('todayStatus');
+      const recordCard  = document.getElementById('recordCard');
       const recordLabel = document.getElementById('recordLabel');
       todayEl.classList.remove('hidden');
 
       if (todayRecord) {
+        const n = normRecord(todayRecord);
         todayEl.className = 'today-status done';
         document.getElementById('todayStatusIcon').textContent = '✅';
         document.getElementById('todayStatusText').textContent =
-          `오늘 ${todayRecord.laps}바퀴 기록 완료!`;
+          `오늘 ${n.distanceKm.toFixed(2)}km 기록 완료!`;
 
-        // Allow edit if still in recording window
-        if (isRecordingAllowed()) {
+        if (inWindow) {
           recordLabel.textContent = '기록 수정하기';
         } else {
           recordCard.classList.add('disabled');
@@ -160,12 +158,11 @@
         document.getElementById('todayStatusText').textContent = '오늘 아직 기록이 없어요';
       }
 
-      // Recent badge (earned today)
       const today = getTodayKST();
       const badges = userData.badges || {};
       const recentBadgeEntry = Object.entries(badges)
         .filter(([, ts]) => ts && ts.startsWith(today))
-        .pop(); // most recent today
+        .pop();
 
       if (recentBadgeEntry) {
         const badgeDef = BADGE_DEFS.find(b => b.id === recentBadgeEntry[0]);
@@ -176,10 +173,8 @@
         }
       }
 
-      // Next session info
       const nextSession = getNextSessionDate();
       const sessionText = document.getElementById('sessionText');
-      const inWindow    = isRecordingAllowed();
       if (inWindow) {
         document.getElementById('sessionInfo').style.background = 'rgba(62,180,137,0.12)';
         document.getElementById('sessionInfo').style.borderColor = 'rgba(62,180,137,0.3)';
