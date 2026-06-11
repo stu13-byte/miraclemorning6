@@ -46,17 +46,29 @@
             </div>
             <div class="stat-card">
               <div class="stat-value" id="s-dist">–</div>
-              <div class="stat-label">누적 거리 (m)</div>
+              <div class="stat-label">누적 거리 (km)</div>
             </div>
             <div class="stat-card">
               <div class="stat-value" id="s-best">–</div>
-              <div class="stat-label">개인 최고 바퀴</div>
+              <div class="stat-label">개인 최고 거리 (km)</div>
             </div>
           </div>
 
           <div class="chart-container" id="chartWrap">
-            <h3 class="section-title" style="margin-bottom:12px;">바퀴 수 추이</h3>
-            <canvas id="lapsChart"></canvas>
+            <h3 class="section-title" style="margin-bottom:12px;">거리 추이</h3>
+            <canvas id="distanceChart"></canvas>
+          </div>
+
+          <!-- 나의 수준은? 섹션 -->
+          <div class="card" id="distributionSection" style="display:none;">
+            <h3 class="section-title">나의 수준은? 🎯</h3>
+            <div style="margin-bottom:12px;">
+              <select class="form-control" id="distDateSelect" style="max-width:220px;"></select>
+            </div>
+            <div class="chart-container" style="margin-top:8px;">
+              <canvas id="distributionChart"></canvas>
+            </div>
+            <p id="distributionText" style="text-align:center;margin-top:14px;font-size:14px;color:var(--text-secondary);line-height:1.7;"></p>
           </div>
 
           <h3 class="section-title">전체 기록</h3>
@@ -69,9 +81,9 @@
               <thead>
                 <tr>
                   <th>날짜</th>
-                  <th>시간(분)</th>
-                  <th>바퀴</th>
-                  <th>거리(m)</th>
+                  <th>시간</th>
+                  <th>거리(km)</th>
+                  <th>평균 페이스</th>
                 </tr>
               </thead>
               <tbody id="recordsBody"></tbody>
@@ -89,11 +101,11 @@
           <div class="stat-grid" id="classStats">
             <div class="stat-card">
               <div class="stat-value" id="c-avg">–</div>
-              <div class="stat-label">반 평균 바퀴</div>
+              <div class="stat-label">반 평균 거리 (km)</div>
             </div>
             <div class="stat-card">
               <div class="stat-value" id="c-top">–</div>
-              <div class="stat-label">반 최고 기록</div>
+              <div class="stat-label">반 최고 기록 (km)</div>
             </div>
             <div class="stat-card">
               <div class="stat-value" id="c-rank">–</div>
@@ -102,7 +114,7 @@
           </div>
 
           <div class="chart-container">
-            <h3 class="section-title" style="margin-bottom:12px;">반 바퀴 현황</h3>
+            <h3 class="section-title" style="margin-bottom:12px;">반 거리 현황</h3>
             <canvas id="classChart"></canvas>
           </div>
         </div>
@@ -117,14 +129,16 @@
   <script type="module">
     import { requireAuth, logout } from './js/auth.js';
     import {
-      getUserRecords, getClassData, calcUserStats, formatDateKorean
+      getUserRecords, getClassData, calcUserStats, formatDateKorean,
+      normRecord, formatTime, formatPace, calcPercentile
     } from './js/records.js';
     import { BADGE_DEFS, formatBadgeDate } from './js/badges.js';
-    import { createLapsChart, createClassChart } from './js/chart-init.js';
+    import { createDistanceChart, createClassChart, createDistributionChart } from './js/chart-init.js';
 
     const overlay = document.getElementById('loadingOverlay');
-    let lapsChartInst = null;
+    let distChartInst = null;
     let classChartInst = null;
+    let distroChartInst = null;
 
     requireAuth('student', async (userData) => {
       try {
@@ -142,14 +156,15 @@
 
       renderMyRecords(records);
       renderBadges(userData.badges || {});
-      renderClassBoard(classData, userData.uid, userData.class);
+      renderClassBoard(classData, userData.uid);
+      setupDistributionSection(records, classData, userData.uid);
     }
 
     function renderMyRecords(records) {
       const stats = calcUserStats(records);
       document.getElementById('s-total').textContent = stats.total.toLocaleString();
-      document.getElementById('s-dist').textContent  = stats.totalDistance.toLocaleString();
-      document.getElementById('s-best').textContent  = stats.bestLaps;
+      document.getElementById('s-dist').textContent  = stats.totalDistanceKm.toFixed(2);
+      document.getElementById('s-best').textContent  = stats.bestDistanceKm.toFixed(2);
 
       if (records.length === 0) {
         document.getElementById('noRecords').classList.remove('hidden');
@@ -158,27 +173,69 @@
       }
 
       document.getElementById('recordsTable').style.display = '';
-      const tbody = document.getElementById('recordsBody');
+      const tbody  = document.getElementById('recordsBody');
       const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
-      tbody.innerHTML = sorted.map(r => `
-        <tr>
-          <td>${formatDateKorean(r.date)}</td>
-          <td>${r.minutes}분</td>
-          <td>${r.laps}바퀴</td>
-          <td>${r.distance}m</td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = sorted.map(r => {
+        const n = normRecord(r);
+        return `
+          <tr>
+            <td>${formatDateKorean(r.date)}</td>
+            <td>${formatTime(n.seconds)}</td>
+            <td>${n.distanceKm.toFixed(2)}</td>
+            <td>${formatPace(n.distanceKm, n.seconds)}</td>
+          </tr>
+        `;
+      }).join('');
 
-      // Chart
-      const ctx = document.getElementById('lapsChart').getContext('2d');
-      if (lapsChartInst) lapsChartInst.destroy();
-      lapsChartInst = createLapsChart(ctx, records);
+      const ctx = document.getElementById('distanceChart').getContext('2d');
+      if (distChartInst) distChartInst.destroy();
+      distChartInst = createDistanceChart(ctx, records);
+    }
+
+    function setupDistributionSection(records, classData, myUid) {
+      const myRecords = records.map(normRecord).sort((a, b) => b.date.localeCompare(a.date));
+      if (myRecords.length === 0) return;
+
+      const section = document.getElementById('distributionSection');
+      section.style.display = '';
+
+      const select = document.getElementById('distDateSelect');
+      select.innerHTML = myRecords.map(r =>
+        `<option value="${r.date}">${r.date}</option>`
+      ).join('');
+
+      function renderDistro(date) {
+        const dayRecords = classData.records.map(normRecord).filter(r => r.date === date);
+        const myRecord   = myRecords.find(r => r.date === date);
+        const myKm       = myRecord ? myRecord.distanceKm : 0;
+        const allValues  = dayRecords.map(r => r.distanceKm);
+        const textEl     = document.getElementById('distributionText');
+
+        if (allValues.length <= 1) {
+          textEl.textContent = '비교 가능한 친구가 아직 없어요';
+          if (distroChartInst) { distroChartInst.destroy(); distroChartInst = null; }
+          return;
+        }
+
+        const ctx = document.getElementById('distributionChart').getContext('2d');
+        if (distroChartInst) distroChartInst.destroy();
+        distroChartInst = createDistributionChart(ctx, allValues, myKm);
+
+        const p = calcPercentile(allValues, myKm);
+        if (p) {
+          textEl.innerHTML =
+            `이 날 너의 거리 <strong>${myKm.toFixed(2)}km</strong> — 반에서 상위 <strong>${p.topPct}%</strong> (전체 ${p.total}명 중 ${p.rank}번째)`;
+        }
+      }
+
+      renderDistro(myRecords[0].date);
+      select.addEventListener('change', () => renderDistro(select.value));
     }
 
     function renderBadges(earnedBadges) {
       const grid = document.getElementById('badgeGrid');
       grid.innerHTML = BADGE_DEFS.map(b => {
-        const earned = !!earnedBadges[b.id];
+        const earned  = !!earnedBadges[b.id];
         const dateStr = earned ? formatBadgeDate(earnedBadges[b.id]) : '';
         return `
           <div class="badge-card ${earned ? 'earned' : 'unearned'}">
@@ -191,25 +248,24 @@
       }).join('');
     }
 
-    function renderClassBoard({ records, userMap }, myUid, myClass) {
-      // Aggregate total laps per user
-      const lapsByUid = {};
+    function renderClassBoard({ records, userMap }, myUid) {
+      const kmByUid = {};
       records.forEach(r => {
-        lapsByUid[r.uid] = (lapsByUid[r.uid] || 0) + r.laps;
+        kmByUid[r.uid] = (kmByUid[r.uid] || 0) + normRecord(r).distanceKm;
       });
 
-      const entries = Object.entries(lapsByUid).sort((a, b) => b[1] - a[1]);
-      const myLaps  = lapsByUid[myUid] || 0;
-      const myRank  = entries.findIndex(([uid]) => uid === myUid) + 1;
-
-      const allLaps  = Object.values(lapsByUid);
-      const avgLaps  = allLaps.length ? Math.round(allLaps.reduce((s, v) => s + v, 0) / allLaps.length) : 0;
+      const entries  = Object.entries(kmByUid).sort((a, b) => b[1] - a[1]);
+      const myKm     = kmByUid[myUid] || 0;
+      const myRank   = entries.findIndex(([uid]) => uid === myUid) + 1;
+      const allKm    = Object.values(kmByUid);
+      const avgKm    = allKm.length ? allKm.reduce((s, v) => s + v, 0) / allKm.length : 0;
       const topEntry = entries[0];
       const topName  = topEntry ? (userMap[topEntry[0]]?.name || '알 수 없음') : '-';
-      const topLaps  = topEntry ? topEntry[1] : 0;
+      const topKm    = topEntry ? topEntry[1] : 0;
 
-      document.getElementById('c-avg').textContent  = avgLaps;
-      document.getElementById('c-top').innerHTML    = `${topLaps}<small style="font-size:13px;font-weight:500;"> (${topName})</small>`;
+      document.getElementById('c-avg').textContent  = avgKm.toFixed(2);
+      document.getElementById('c-top').innerHTML    =
+        `${topKm.toFixed(2)}<small style="font-size:13px;font-weight:500;"> (${topName})</small>`;
       document.getElementById('c-rank').textContent = myRank ? `${myRank}위` : '-';
 
       if (records.length === 0) return;
@@ -219,7 +275,6 @@
       classChartInst = createClassChart(ctx, records, userMap, myUid);
     }
 
-    // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
